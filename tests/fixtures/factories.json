@@ -1,0 +1,12 @@
+{
+  "8453": {
+    "name": "base",
+    "factory": "0xa77d556536295be287facc7bb4a439d96a8227db",
+    "deploymentBlock": 46876834
+  },
+  "31337": {
+    "name": "foundry",
+    "factory": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
+    "deploymentBlock": 1
+  }
+}

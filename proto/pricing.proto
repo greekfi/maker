@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package bebop;
+
+message LevelInfo {
+  bytes base_address = 1;
+  uint32 base_decimals = 2;
+  bytes quote_address = 3;
+  uint32 quote_decimals = 4;
+  repeated double bids = 5 [packed=true];  // [price, amount, price, amount, ...]
+  repeated double asks = 6 [packed=true];  // [price, amount, price, amount, ...]
+}
+
+message LevelMsg {
+  repeated LevelInfo levels = 1;
+  bytes maker_address = 2;
+}
+
+message LevelsSchema {
+  uint32 chain_id = 1;
+  string msg_topic = 2;  // pricing
+  string msg_type = 3;  // update
+  LevelMsg msg = 4;
+}

@@ -1,0 +1,20 @@
+// Reconstructed from market-maker/src/bebop/proto/takerPricing_pb.js —
+// the original .proto was never committed, only the protobufjs codegen.
+// Field numbers and types verified against the generated encoder
+// (base=1 bytes, quote=2 bytes, last_update_ts=3 uint64,
+//  bids=4 packed double, asks=5 packed double; pairs=1).
+syntax = "proto3";
+
+package bebop;
+
+message PriceUpdate {
+  bytes base = 1;
+  bytes quote = 2;
+  uint64 last_update_ts = 3;
+  repeated double bids = 4 [packed=true];  // [price, amount, price, amount, ...]
+  repeated double asks = 5 [packed=true];  // [price, amount, price, amount, ...]
+}
+
+message BebopPricingUpdate {
+  repeated PriceUpdate pairs = 1;
+}
