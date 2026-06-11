@@ -1,89 +1,51 @@
 # maker
 
-A Bebop RFQ market maker for the Greek.fi options protocol. It discovers
-options on-chain and quotes them on Bebop at a **flat price** ($10/token by
-default). Real pricing is left as a single function to implement.
+A Bebop options market maker in two files:
 
-## How it works
+- **`maker.py`** — run this. Connects to Bebop, streams a price for every
+  option, and signs RFQ quotes. The price is one function (`price()`) at the
+  top — flat $10/token by default. Edit it for real pricing.
+- **`options.py`** — reads option info (strike, expiry, decimals, …) from the
+  factory's `OptionCreated` events on-chain.
 
-1. **Discover** — watches the factory for `OptionCreated` events, so it
-   always knows the live set of options (and their strike, expiry, put/call).
-2. **Price** — asks `PriceSource.price(...)` for a price. The default
-   `FlatPriceSource` returns $10 for everything.
-3. **Quote** — streams those prices to Bebop and signs RFQ responses
-   (EIP-712) when takers ask to trade.
+Protobuf and EIP-712 signing are inlined in `maker.py` (no generated files).
 
-## The one thing to replace: pricing
-
-All pricing goes through one async function — the seam in
-`src/greek_mm/pricing/source.py`:
-
-```python
-class PriceSource(Protocol):
-    async def price(self, option: OptionParams) -> PriceResult | None: ...
-    # OptionParams: strike, expiry, is_put, is_euro, decimals, underlying,
-    #   collateral/consideration addresses, window_seconds, ...
-    # PriceResult: bid, ask, mid
-```
-
-The full option is handed to you; return a price. The default is
-`FlatPriceSource` (`pricing/flat_source.py`) — it ignores the option and
-returns $10. To add real pricing, implement this protocol and pass it to
-`Pricer(...)` instead.
-
-## Quick start
+## Run
 
 ```bash
-uv sync                       # install
-uv run pytest                 # 22 tests
+uv sync
+cp .env.example .env && chmod 600 .env   # fill it in
 
-# see what it would quote (no Bebop connection, no credentials needed):
-uv run greek-mm-show 8453
-
-# run the live Bebop maker (needs credentials, see below):
-cp .env.example .env && chmod 600 .env   # fill in BEBOP_* / PRIVATE_KEY
-uv run greek-mm-bebop
+uv run maker.py          # stream prices + answer RFQs
+uv run maker.py show     # just print discovered options + prices (no connect)
 ```
 
-`greek-mm-show` scans a chain and prints every option with the price it
-would push to Bebop — the quickest way to sanity-check before going live.
-
-## Configuration
-
-Everything is env (`.env` or real env vars). The essentials:
+## Config (.env)
 
 | Var | What |
 |---|---|
-| `BEBOP_MARKETMAKER`, `BEBOP_AUTHORIZATION` | Bebop maker credentials (from the Bebop team) |
-| `PRIVATE_KEY`, `MAKER_ADDRESS` | signing key + address for quotes |
-| `CHAIN_ID`, `CHAIN` | which chain to make markets on (e.g. `8453` / `base`) |
+| `BEBOP_MARKETMAKER`, `BEBOP_AUTHORIZATION` | Bebop maker credentials |
+| `PRIVATE_KEY`, `MAKER_ADDRESS` | signer + maker address — **must match**, or Bebop rejects every quote (the maker warns at startup if they don't) |
+| `CHAIN_ID`, `CHAIN`, `RPC_URL` | chain to make markets on |
+| `FACTORY`, `FROM_BLOCK` | options factory + the block to scan from |
 | `PRICE_PER_TOKEN` | the flat price (default `10`) |
 | `OPTION_ONLY` | optional: comma-separated option addresses to limit to |
 
-See `.env.example` for the full list.
+## Self-test (Bebop's RFQ test path)
 
-## factories.json
+To see your maker answer a real RFQ, run `maker.py`, then as a taker request a
+quote for one of your options with your maker credentials
+([Bebop docs](https://docs.bebop.xyz/market-makers/go-live/testing)):
 
-Per-chain factory address + deployment block (where discovery starts). The
-canonical copy lives in `greekfi/protocol` (`market-maker/factories.json`);
-this repo vendors a snapshot at the root. Point `FACTORIES_JSON` at a
-protocol checkout to use a fresher one.
-
-## Protobuf
-
-Bebop's pricing stream is protobuf. Bindings are committed
-(`src/greek_mm/bebop/proto/pricing_pb2.py`); regenerate after editing
-`proto/pricing.proto`:
-
-```bash
-uv run --no-project --python 3.12 --with grpcio-tools \
-  python -m grpc_tools.protoc -Iproto --python_out=src/greek_mm/bebop/proto \
-  proto/pricing.proto
+```
+GET https://api.bebop.xyz/pmm/<chain>/v3/quote
+  ?sell_tokens=<USDC>&buy_tokens=<option>&sell_amounts=<amount>
+  &taker_address=<you>&approval_type=Standard&skip_validation=true
+  &gasless=false&source=<BEBOP_MARKETMAKER>
+header: source-auth: <BEBOP_AUTHORIZATION>
 ```
 
-## Notes
-
-- EIP-712 quote signatures are byte-identical to the node maker's viem
-  output — pinned in `tests/test_signing.py`.
-- This is a port of the Bebop path from the node market maker in
-  `greekfi/protocol` (`market-maker/`), minus the pricing engine.
+Bebop routes that RFQ back to your maker, which signs and pushes a quote.
+(Verified live: levels push and signed quotes reach Bebop; acceptance needs
+`PRIVATE_KEY` to match the maker address registered with Bebop, and the option
+to be live/settleable.)
