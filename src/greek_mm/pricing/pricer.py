@@ -58,8 +58,8 @@ class Pricer:
 
     # === quote scaling (exact integer math) ===
 
-    async def ask_quote(self, option_address: str, amount: int, decimals: int) -> int | None:
-        """Cost in consideration token units for buying `amount` option units."""
+    async def ask_premium(self, option_address: str, amount: int, decimals: int) -> int | None:
+        """Premium (ask side) to buy `amount` option units, in premium-token units."""
         result = await self.price(option_address)
         option = self.get_option(option_address)
         if result is None or option is None:
@@ -67,8 +67,8 @@ class Pricer:
         ask_scaled = int(result.ask * 10**decimals)
         return amount * ask_scaled // 10**option.decimals
 
-    async def bid_quote(self, option_address: str, amount: int, decimals: int) -> int | None:
-        """Payout in consideration token units for selling `amount` option units."""
+    async def bid_premium(self, option_address: str, amount: int, decimals: int) -> int | None:
+        """Premium (bid side) to sell `amount` option units, in premium-token units."""
         result = await self.price(option_address)
         option = self.get_option(option_address)
         if result is None or option is None:
@@ -104,28 +104,28 @@ class Pricer:
                 raise ValueError(msg)
 
             if is_buying_option:
-                # Taker buys options: maker sells at ask, taker pays consideration.
+                # Taker buys the option: maker quotes the ask premium, taker pays it.
                 option_address = buy["token"]
                 option_amount = int(buy["amount"])
-                consideration = await self.ask_quote(option_address, option_amount, 6)
-                if consideration is None:
+                premium = await self.ask_premium(option_address, option_amount, 6)
+                if premium is None:
                     msg = "Failed to calculate quote"
                     raise ValueError(msg)
                 quote = {
                     "type": "quote",
                     "rfq_id": rfq_id,
                     "maker_address": maker_address,
-                    "buy_tokens": [{"token": sell["token"], "amount": str(consideration)}],
+                    "buy_tokens": [{"token": sell["token"], "amount": str(premium)}],
                     "sell_tokens": [{"token": buy["token"], "amount": str(option_amount)}],
                     "expiry": int(time.time()) + 60,
                     "_originalRequest": original,
                 }
             else:
-                # Taker sells options: maker buys at bid, pays consideration.
+                # Taker sells the option: maker quotes the bid premium, taker receives it.
                 option_address = sell["token"]
                 option_amount = int(sell["amount"])
-                consideration = await self.bid_quote(option_address, option_amount, 6)
-                if consideration is None:
+                premium = await self.bid_premium(option_address, option_amount, 6)
+                if premium is None:
                     msg = "Failed to calculate quote"
                     raise ValueError(msg)
                 quote = {
@@ -133,7 +133,7 @@ class Pricer:
                     "rfq_id": rfq_id,
                     "maker_address": maker_address,
                     "buy_tokens": [{"token": sell["token"], "amount": str(option_amount)}],
-                    "sell_tokens": [{"token": buy["token"], "amount": str(consideration)}],
+                    "sell_tokens": [{"token": buy["token"], "amount": str(premium)}],
                     "expiry": int(time.time()) + 60,
                     "_originalRequest": original,
                 }

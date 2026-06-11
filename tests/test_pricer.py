@@ -20,18 +20,18 @@ def test_registry_case_insensitive(pricer: Pricer) -> None:
     assert pricer.option_addresses() == [OPTION.lower()]
 
 
-async def test_ask_quote_exact_int_math(pricer: Pricer) -> None:
-    # 2.5 option units (18 dec) at ask $105 → 262.5 USDC = 262_500_000 (6 dec)
+async def test_ask_premium_exact_int_math(pricer: Pricer) -> None:
+    # 2.5 option units (18 dec) at ask $105 → 262.5 premium = 262_500_000 (6 dec)
     amount = 25 * 10**17
-    cost = await pricer.ask_quote(OPTION, amount, USDC_DECIMALS)
-    assert cost == amount * 105_000_000 // 10**18
-    assert cost == 262_500_000
+    premium = await pricer.ask_premium(OPTION, amount, USDC_DECIMALS)
+    assert premium == amount * 105_000_000 // 10**18
+    assert premium == 262_500_000
 
 
-async def test_bid_quote_exact_int_math(pricer: Pricer) -> None:
+async def test_bid_premium_exact_int_math(pricer: Pricer) -> None:
     amount = 10**18
-    payout = await pricer.bid_quote(OPTION, amount, USDC_DECIMALS)
-    assert payout == 95_000_000
+    premium = await pricer.bid_premium(OPTION, amount, USDC_DECIMALS)
+    assert premium == 95_000_000
 
 
 async def test_price_passes_full_option_to_source(pricer: Pricer) -> None:
