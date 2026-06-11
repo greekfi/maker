@@ -1,25 +1,20 @@
 """BEBOP mode: RFQ maker + protobuf pricing stream on one chain.
 
-Option discovery runs through the same event sync + registry as direct mode
-(the node version's separate metadata.ts RPC scan is redundant — the
-OptionCreated event carries every field the registry needs).
+Options are discovered through the same event sync + registry as direct mode.
 """
 
 import asyncio
 import logging
 import os
-import time
 
 from greek_mm.bebop.client import BebopClient, BebopConfig
 from greek_mm.bebop.pricing_stream import MakerPricingStream, PricingStreamConfig
 from greek_mm.config.tokens import get_token
 from greek_mm.events.sync_loop import run_sync_loop
 from greek_mm.modes._runtime import bootstrap, run
-from greek_mm.pricing.pricer import OptionParams, Pricer
+from greek_mm.pricing.flat_source import FlatPriceSource
+from greek_mm.pricing.pricer import Pricer
 from greek_mm.pricing.registry import register_from_events
-from greek_mm.pricing.spot_feed import SpotFeed
-from greek_mm.pricing.svi import SviParams
-from greek_mm.pricing.svi_source import SviPriceSource
 
 log = logging.getLogger(__name__)
 
@@ -37,16 +32,8 @@ async def _main() -> None:
         log.warning("USDC not configured for chain %d, using Ethereum USDC", chain_id)
         usdc_address = get_token(1, "USDC").address
 
-    spot_feed = SpotFeed()
-    spot_feed.use_default_providers()
-    source = SviPriceSource(
-        spot_feed,
-        params=SviParams.from_env(),
-        risk_free_rate=float(os.environ.get("RISK_FREE_RATE", "0.05")),
-    )
+    source = FlatPriceSource(float(os.environ.get("PRICE_PER_TOKEN", "10")))
     pricer = Pricer(source, chain_id)
-
-    spot_feed.start_polling(["ETH", "BTC"], float(os.environ.get("SPOT_POLL_INTERVAL", "30")))
 
     # Optional filter: only quote the addresses in OPTION_ONLY (comma-separated).
     only_env = os.environ.get("OPTION_ONLY", "").strip()
@@ -58,28 +45,6 @@ async def _main() -> None:
         if only_filter is not None:
             events = [e for e in events if e["args"]["option"].lower() in only_filter]
         await register_from_events(pricer, event_chain_id, events)
-
-    # If a filter is set but discovery misses those addresses, register
-    # synthetic entries so pricing still flows. Only safe when paired with
-    # PRICE_OVERRIDE_USD, which bypasses the pricer.
-    if only_filter and os.environ.get("PRICE_OVERRIDE_USD"):
-        synthetic_expiry = int(time.time()) + 7 * 86400
-        for addr in only_filter:
-            if pricer.is_option(addr):
-                continue
-            pricer.register_option(
-                OptionParams(
-                    option_address=addr,
-                    underlying="ETH",
-                    strike=1.0,
-                    expiry=synthetic_expiry,
-                    is_put=False,
-                    decimals=18,
-                    chain_id=chain_id,
-                    collateral_address="0x0000000000000000000000000000000000000000",
-                )
-            )
-            log.info("  (synthetic) %s", addr)
 
     bebop_client = BebopClient(
         BebopConfig(
@@ -104,14 +69,11 @@ async def _main() -> None:
         pricer,
     )
 
-    try:
-        await asyncio.gather(
-            run_sync_loop(chain_ids=[chain_id], on_new_events=on_new_events),
-            bebop_client.run(),
-            pricing_stream.run(),
-        )
-    finally:
-        await spot_feed.close()
+    await asyncio.gather(
+        run_sync_loop(chain_ids=[chain_id], on_new_events=on_new_events),
+        bebop_client.run(),
+        pricing_stream.run(),
+    )
 
 
 def main() -> None:

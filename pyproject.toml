@@ -1,7 +1,7 @@
 [project]
 name = "greek-mm"
 version = "0.1.0"
-description = "Python market maker for the Greek options protocol: SSVI pricing, Bebop RFQ maker, OptionCreated indexer"
+description = "Python Bebop RFQ maker for the Greek options protocol — flat price placeholder + OptionCreated indexer"
 readme = "README.md"
 authors = [
     { name = "Mahmoud Lababidi", email = "mahmoud@mahmoud.one" }
@@ -9,19 +9,15 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "eth-account>=0.13.7",
-    "fastapi>=0.136.3",
-    "httpx>=0.28.1",
     "protobuf>=7.35.0",
     "python-dotenv>=1.2.2",
-    "uvicorn[standard]>=0.49.0",
     "web3>=7.16.0",
     "websockets>=15.0.1",
 ]
 
 [project.scripts]
-greek-mm-direct = "greek_mm.modes.direct:main"
 greek-mm-bebop = "greek_mm.modes.bebop:main"
-greek-mm-relay = "greek_mm.modes.relay:main"
+greek-mm-show = "greek_mm.modes.show:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]
@@ -29,7 +25,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6.155.2",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.16",
@@ -58,4 +53,4 @@ asyncio_mode = "auto"
 # grpcio-tools is invoked one-off for proto codegen:
 #   uv run --no-project --python 3.12 --with grpcio-tools \
 #     python -m grpc_tools.protoc -Iproto --python_out=src/greek_mm/bebop/proto \
-#     proto/pricing.proto proto/taker_pricing.proto
+#     proto/pricing.proto

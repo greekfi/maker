@@ -42,6 +42,7 @@ TOKENS: dict[int, dict[str, TokenConfig]] = {
         "cbBTC": TokenConfig(
             "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", "cbBTC", 8, "Coinbase Wrapped BTC"
         ),
+        "WBTC": TokenConfig("0x0555E30da8f98308EdB960aa94C0Db47230d2B9c", "WBTC", 8, "Wrapped BTC"),
     },
     # === ARBITRUM ONE ===
     42161: {

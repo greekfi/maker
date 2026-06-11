@@ -1,13 +1,9 @@
 """The pricing seam.
 
-PriceSource.price(...) takes every parameter needed to price an option and
-returns a two-sided market. The signature is the contract: a remote pricing
-service replaces SviPriceSource by implementing this protocol — no hidden
-state (spot, surface, spreads) crosses the boundary.
-
-Unit contract: prices are USD per 1 unit of underlying notional. `strike`
-is always consideration-per-collateral (puts arrive already un-inverted
-from their on-chain 1e36/K storage — see registry.py).
+`PriceSource.price(...)` takes all the option information and returns a
+two-sided market (bid/ask). This is the one thing to replace with real
+pricing — implement this protocol and inject it into the Pricer. The
+default implementation (FlatPriceSource) just returns a flat price.
 """
 
 from dataclasses import dataclass
@@ -19,13 +15,6 @@ class PriceResult:
     bid: float
     ask: float
     mid: float
-    iv: float
-    spot: float
-    delta: float
-    gamma: float
-    theta: float
-    vega: float
-    time_to_expiry: float
 
 
 class PriceSource(Protocol):

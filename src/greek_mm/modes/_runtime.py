@@ -1,4 +1,4 @@
-"""Shared mode plumbing: .env loading, logging, uvicorn-in-task, shutdown."""
+"""Shared mode plumbing: .env loading, logging, signal-aware run()."""
 
 import asyncio
 import contextlib
@@ -7,9 +7,7 @@ import os
 import signal
 from collections.abc import Awaitable, Callable
 
-import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI
 
 
 def bootstrap() -> None:
@@ -18,17 +16,6 @@ def bootstrap() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-
-class _Server(uvicorn.Server):
-    # The mode owns SIGINT/SIGTERM; uvicorn must not install its own handlers.
-    def install_signal_handlers(self) -> None:
-        pass
-
-
-def serve_http(app: FastAPI, port: int) -> Awaitable[None]:
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
-    return _Server(config).serve()
 
 
 def run(main: Callable[[], Awaitable[None]]) -> None:

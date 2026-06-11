@@ -17,18 +17,7 @@ class StubSource:
 
 
 def make_result(bid: float = 95.0, ask: float = 105.0, mid: float = 100.0) -> PriceResult:
-    return PriceResult(
-        bid=bid,
-        ask=ask,
-        mid=mid,
-        iv=0.8,
-        spot=3000.0,
-        delta=0.5,
-        gamma=0.001,
-        theta=-1.2,
-        vega=3.4,
-        time_to_expiry=0.08,
-    )
+    return PriceResult(bid=bid, ask=ask, mid=mid)
 
 
 def make_option(

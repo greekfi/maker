@@ -1,19 +1,10 @@
 """Per-chain option registry + quote scaling + Bebop RFQ handling.
 
-Pricing itself is delegated to the injected PriceSource (the seam) — the
-Pricer only owns what is genuinely stateful: which options exist on this
-chain and how to convert per-unit USD prices into on-chain token amounts.
-
-Put normalization happens here, not behind the seam: the source quotes USD
-per 1 unit of underlying notional, but a put option token is denominated in
-consideration collateral — exercising `strike` tokens covers one unit of
-underlying. So price_per_token = source_price / strike for puts (equivalent
-to multiplying by the contract-stored inverted strike). Only the price is
-normalized; greeks stay standard option greeks, matching the node MM and
-the frontend. Calls pass through unchanged.
+Pricing is delegated to the injected PriceSource (the seam) — the Pricer
+only owns what is stateful: which options exist on this chain, and how to
+turn a per-token price into on-chain token amounts for quotes.
 """
 
-import dataclasses
 import logging
 import os
 import time
@@ -62,11 +53,11 @@ class Pricer:
     # === pricing ===
 
     async def price(self, option_address: str) -> PriceResult | None:
-        """Two-sided market in USD per 1 option token."""
+        """Two-sided market (bid/ask) per 1 option token."""
         option = self.get_option(option_address)
         if option is None:
             return None
-        result = await self.source.price(
+        return await self.source.price(
             underlying=option.underlying,
             strike=option.strike,
             expiry=option.expiry,
@@ -74,16 +65,6 @@ class Pricer:
             chain_id=self.chain_id,
             option_address=option.option_address,
         )
-        if result is None:
-            return None
-        if option.is_put and option.strike > 0:
-            result = dataclasses.replace(
-                result,
-                bid=result.bid / option.strike,
-                ask=result.ask / option.strike,
-                mid=result.mid / option.strike,
-            )
-        return result
 
     async def get_price(self, option_address: str) -> dict | None:
         """[price, size] levels format for the Bebop pricing stream."""

@@ -1,8 +1,9 @@
-"""Lazy option registration from OptionCreated events.
+"""Register options from OptionCreated events into a Pricer.
 
-Decimals are read on-chain once per option and cached for the process
-lifetime; put strikes are un-inverted from the contract's 1e36/K storage so
-the PriceSource always sees consideration-per-collateral.
+Pulls the option's terms straight off the event (strike, expiry, is_put,
+collateral/consideration) and reads the token symbol + decimals on-chain
+(cached). Every option is registered — nothing is skipped — so the flat
+price applies to all of them.
 """
 
 import asyncio
@@ -24,22 +25,38 @@ _DECIMALS_ABI = [
         "outputs": [{"type": "uint8"}],
     }
 ]
+_SYMBOL_ABI = [
+    {
+        "name": "symbol",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"type": "string"}],
+    }
+]
 
-# Per-process decimals cache. Options inherit collateral decimals and can't
-# change them, so one read per address is enough for ever.
+# Per-process caches: a token's symbol/decimals never change.
+_symbol_cache: dict[str, str | None] = {}
 _decimals_cache: dict[str, int] = {}
 
 
-def feed_symbol_for(token_symbol: str | None) -> str | None:
-    """Map a token symbol to the spot-feed key. ETH/BTC wrappers collapse."""
-    if not token_symbol:
-        return None
-    s = token_symbol.upper()
-    if s in ("WETH", "ETH") or s.endswith("ETH"):
-        return "ETH"
-    if s in ("WBTC", "BTC", "CBBTC") or s.endswith("BTC"):
-        return "BTC"
-    return None
+async def _resolve_symbol(chain_id: int, address: str) -> str | None:
+    """Token symbol: static registry first, then on-chain symbol() (cached)."""
+    token = get_token_by_address(chain_id, address)
+    if token is not None:
+        return token.symbol
+    key = f"{chain_id}:{address.lower()}"
+    if key in _symbol_cache:
+        return _symbol_cache[key]
+    try:
+        w3 = get_w3(chain_id)
+        contract = w3.eth.contract(address=w3.to_checksum_address(address), abi=_SYMBOL_ABI)
+        symbol = str(await contract.functions.symbol().call())
+    except Exception as err:  # unknown token stays unknown
+        log.warning("symbol() failed for %s on chain %s: %s", address, chain_id, err)
+        symbol = None
+    _symbol_cache[key] = symbol
+    return symbol
 
 
 async def _read_decimals(chain_id: int, address: str) -> int:
@@ -58,31 +75,21 @@ async def _read_decimals(chain_id: int, address: str) -> int:
     return decimals
 
 
-async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str | None:
-    """Register one event's option if unknown. Returns the feed symbol or None."""
+async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str:
+    """Register one event's option if unknown. Returns its option address."""
     args = event["args"]
     option_address = args["option"]
-    existing = pricer.get_option(option_address)
-    if existing is not None:
-        return existing.underlying
+    if pricer.is_option(option_address):
+        return option_address
 
-    # Calls reference collateral; puts reference consideration.
+    # The underlying label is the collateral for calls, consideration for
+    # puts — purely informational (the flat price ignores it).
     ref_address = args["consideration"] if args["isPut"] else args["collateral"]
-    token = get_token_by_address(chain_id, ref_address)
-    underlying = feed_symbol_for(token.symbol if token else None)
-    if underlying is None:
-        log.warning(
-            "[registry] chain %s: unknown %s %s on option %s; not registering",
-            chain_id,
-            "consideration" if args["isPut"] else "collateral",
-            ref_address,
-            option_address,
-        )
-        return None
-
+    underlying = await _resolve_symbol(chain_id, ref_address) or ref_address
     decimals = await _read_decimals(chain_id, option_address)
 
-    # Strike is 18-decimal fixed-point on chain; puts store 1/strike.
+    # Strike is 18-decimal fixed-point on chain; puts store 1/strike, so
+    # un-invert to keep `strike` human-readable (consideration-per-collateral).
     strike = int(args["strike"]) / 10**18
     if args["isPut"] and strike > 0:
         strike = 1 / strike
@@ -99,19 +106,16 @@ async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str
             collateral_address=args["collateral"],
         )
     )
-    return underlying
+    return option_address
 
 
-async def register_from_events(pricer: Pricer, chain_id: int, events: list[dict]) -> set[str]:
-    """Register a batch; decimals reads run 16 at a time to stay RPC-polite."""
-    underlyings: set[str] = set()
+async def register_from_events(pricer: Pricer, chain_id: int, events: list[dict]) -> None:
+    """Register a batch; on-chain reads run 16 at a time to stay RPC-polite."""
     batch = 16
     for i in range(0, len(events), batch):
-        results = await asyncio.gather(
+        await asyncio.gather(
             *(register_from_event(pricer, chain_id, e) for e in events[i : i + batch])
         )
-        underlyings.update(u for u in results if u)
-    return underlyings
 
 
 async def ensure_registered(pricer: Pricer, chain_id: int, option_address: str) -> bool:
@@ -120,4 +124,5 @@ async def ensure_registered(pricer: Pricer, chain_id: int, option_address: str) 
     event = store.find_by_option(chain_id, option_address)
     if event is None:
         return False
-    return await register_from_event(pricer, chain_id, event) is not None
+    await register_from_event(pricer, chain_id, event)
+    return True

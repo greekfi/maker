@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 from dataclasses import dataclass
 
 import websockets
@@ -82,23 +81,15 @@ class MakerPricingStream:
         schema.msg_type = "update"
         schema.msg.maker_address = _hex_to_bytes(self._config.maker_address)
 
-        # Debug override: PRICE_OVERRIDE_USD=<mid> forces every option's
-        # bid/ask to (mid - 1%, mid + 1%) regardless of pricer output.
-        override_raw = os.environ.get("PRICE_OVERRIDE_USD", "")
-        override_mid = float(override_raw) if override_raw else 0.0
-
         valid = 0
         skipped = 0
         for addr in self._pricer.option_addresses():
-            if override_mid > 0:
-                bid_price, ask_price = override_mid * 0.99, override_mid * 1.01
-            else:
-                pricing = await self._pricer.get_price(addr)
-                if not pricing or not pricing["bids"] or not pricing["asks"]:
-                    skipped += 1
-                    continue
-                bid_price = pricing["bids"][0][0]
-                ask_price = pricing["asks"][0][0]
+            pricing = await self._pricer.get_price(addr)
+            if not pricing or not pricing["bids"] or not pricing["asks"]:
+                skipped += 1
+                continue
+            bid_price = pricing["bids"][0][0]
+            ask_price = pricing["asks"][0][0]
 
             # Bebop rejects zero/negative prices and wide spreads.
             if bid_price <= 0 or ask_price <= 0:
