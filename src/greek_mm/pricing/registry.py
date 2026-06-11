@@ -101,9 +101,13 @@ async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str
             strike=strike,
             expiry=args["expirationDate"],
             is_put=args["isPut"],
+            is_euro=args["isEuro"],
             decimals=decimals,
             chain_id=chain_id,
             collateral_address=args["collateral"],
+            consideration_address=args["consideration"],
+            window_seconds=args["windowSeconds"],
+            receipt_address=args["receipt"],
         )
     )
     return option_address

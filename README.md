@@ -20,15 +20,16 @@ All pricing goes through one async function — the seam in
 
 ```python
 class PriceSource(Protocol):
-    async def price(
-        self, *, underlying, strike, expiry, is_put, chain_id, option_address
-    ) -> PriceResult | None: ...   # PriceResult(bid, ask, mid)
+    async def price(self, option: OptionParams) -> PriceResult | None: ...
+    # OptionParams: strike, expiry, is_put, is_euro, decimals, underlying,
+    #   collateral/consideration addresses, window_seconds, ...
+    # PriceResult: bid, ask, mid
 ```
 
-The option info is handed to you; return a price. The default is
-`FlatPriceSource` (`pricing/flat_source.py`) — ~10 lines that ignore the
-inputs and return $10. To add real pricing, implement this protocol and pass
-it to `Pricer(...)` instead.
+The full option is handed to you; return a price. The default is
+`FlatPriceSource` (`pricing/flat_source.py`) — it ignores the option and
+returns $10. To add real pricing, implement this protocol and pass it to
+`Pricer(...)` instead.
 
 ## Quick start
 

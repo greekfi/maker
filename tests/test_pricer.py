@@ -34,18 +34,19 @@ async def test_bid_quote_exact_int_math(pricer: Pricer) -> None:
     assert payout == 95_000_000
 
 
-async def test_price_passes_seam_params(pricer: Pricer) -> None:
+async def test_price_passes_full_option_to_source(pricer: Pricer) -> None:
+    # The whole option object reaches the PriceSource, even though the flat
+    # source ignores it — a real pricer gets everything it needs.
     source: StubSource = pricer.source  # type: ignore[assignment]
     await pricer.price(OPTION)
-    call = source.calls[0]
-    assert call == {
-        "underlying": "ETH",
-        "strike": 3000.0,
-        "expiry": 4_000_000_000,
-        "is_put": False,
-        "chain_id": 8453,
-        "option_address": OPTION,
-    }
+    passed = source.calls[0]
+    assert passed is pricer.get_option(OPTION)
+    assert passed.strike == 3000.0
+    assert passed.expiry == 4_000_000_000
+    assert passed.is_put is False
+    assert passed.collateral_address == "0x4200000000000000000000000000000000000006"
+    assert passed.consideration_address == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    assert passed.window_seconds == 28800
 
 
 async def test_get_price_levels_format(pricer: Pricer) -> None:

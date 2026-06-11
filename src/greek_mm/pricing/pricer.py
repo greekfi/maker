@@ -8,23 +8,12 @@ turn a per-token price into on-chain token amounts for quotes.
 import logging
 import os
 import time
-from dataclasses import dataclass
 
-from greek_mm.pricing.source import PriceResult, PriceSource
+from greek_mm.pricing.source import OptionParams, PriceResult, PriceSource
 
 log = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class OptionParams:
-    option_address: str
-    underlying: str
-    strike: float  # consideration per collateral, puts already un-inverted
-    expiry: int  # unix seconds
-    is_put: bool
-    decimals: int
-    chain_id: int
-    collateral_address: str | None = None
+__all__ = ["OptionParams", "Pricer"]
 
 
 class Pricer:
@@ -53,18 +42,12 @@ class Pricer:
     # === pricing ===
 
     async def price(self, option_address: str) -> PriceResult | None:
-        """Two-sided market (bid/ask) per 1 option token."""
+        """Two-sided market (bid/ask) per 1 option token. The full option
+        info is handed to the PriceSource."""
         option = self.get_option(option_address)
         if option is None:
             return None
-        return await self.source.price(
-            underlying=option.underlying,
-            strike=option.strike,
-            expiry=option.expiry,
-            is_put=option.is_put,
-            chain_id=self.chain_id,
-            option_address=option.option_address,
-        )
+        return await self.source.price(option)
 
     async def get_price(self, option_address: str) -> dict | None:
         """[price, size] levels format for the Bebop pricing stream."""
