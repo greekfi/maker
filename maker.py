@@ -173,6 +173,7 @@ def build_quote(rfq: dict, options: dict[str, Option], c: dict) -> dict | None:
     if maker_token.lower() in options:  # taker buys the option from us -> ask
         opt = options[maker_token.lower()]
         _bid, ask = price(opt)
+        unit_price = ask
         if ma is not None:  # exact option amount out
             option_amount, prem = ma, _premium_for_options(ask, ma, opt.decimals)
         elif ta is not None:  # exact USDC in
@@ -183,6 +184,7 @@ def build_quote(rfq: dict, options: dict[str, Option], c: dict) -> dict | None:
     elif taker_token.lower() in options:  # taker sells the option to us -> bid
         opt = options[taker_token.lower()]
         bid, _ask = price(opt)
+        unit_price = bid
         if ta is not None:  # exact option amount in
             option_amount, prem = ta, _premium_for_options(bid, ta, opt.decimals)
         elif ma is not None:  # exact USDC out
@@ -231,7 +233,8 @@ def build_quote(rfq: dict, options: dict[str, Option], c: dict) -> dict | None:
             "quotes": [{
                 "taker_token": taker_token, "maker_token": maker_token,
                 "taker_amount": str(taker_amount), "maker_amount": str(maker_amount),
-                "reference_price": (taker_amount / maker_amount) if maker_amount else 0,
+                # the price we'd quote with no fee, NOT maker_amount/taker_amount
+                "reference_price": unit_price,
             }],
             "receiver": order["receiver"],
             "commands": rfq.get("commands", "0x"),
@@ -239,7 +242,8 @@ def build_quote(rfq: dict, options: dict[str, Option], c: dict) -> dict | None:
             "fee_native": rfq.get("fee_native"),
             "is_aggregate_order": rfq.get("is_aggregate_order", False),
             "expiry_type": rfq.get("expiry_type", "standard"),
-            "signature": signature,
+            # Bebop requires signature as an object, not a bare string.
+            "signature": {"signature": signature, "sign_scheme": "EIP712"} if signature else None,
         },
     }
 
