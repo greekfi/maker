@@ -56,17 +56,20 @@ async def test_get_price_levels_format(pricer: Pricer) -> None:
 async def test_put_price_is_per_token(pricer: Pricer) -> None:
     # A put token is denominated in consideration collateral: exercising
     # `strike` tokens covers 1 unit of underlying, so per-token price is
-    # the source's notional price divided by strike. Greeks scale too.
+    # the source's notional price divided by strike (== multiplied by the
+    # contract-stored inverted strike). Only the price is normalized.
     put = "0x" + "99" * 20
     pricer.register_option(make_option(put, is_put=True, strike=3000.0))
     result = await pricer.price(put)
     assert result is not None
     source_result = make_result(bid=95.0, ask=105.0)
-    assert result.bid == pytest.approx(95.0 / 3000.0, rel=1e-12)
-    assert result.ask == pytest.approx(105.0 / 3000.0, rel=1e-12)
-    assert result.mid == pytest.approx(100.0 / 3000.0, rel=1e-12)
-    assert result.delta == pytest.approx(source_result.delta / 3000.0, rel=1e-12)
-    # IV and spot are surface/market facts, not per-token quantities.
+    assert result.bid == 95.0 / 3000.0
+    assert result.ask == 105.0 / 3000.0
+    assert result.mid == 100.0 / 3000.0
+    # Greeks, IV, and spot stay standard (per underlying notional) —
+    # they describe the option, not the token denomination.
+    assert result.delta == source_result.delta
+    assert result.gamma == source_result.gamma
     assert result.iv == source_result.iv
     assert result.spot == source_result.spot
 

@@ -7,8 +7,10 @@ chain and how to convert per-unit USD prices into on-chain token amounts.
 Put normalization happens here, not behind the seam: the source quotes USD
 per 1 unit of underlying notional, but a put option token is denominated in
 consideration collateral — exercising `strike` tokens covers one unit of
-underlying. So price_per_token = source_price / strike for puts (greeks
-scale by the same factor). Calls pass through unchanged.
+underlying. So price_per_token = source_price / strike for puts (equivalent
+to multiplying by the contract-stored inverted strike). Only the price is
+normalized; greeks stay standard option greeks, matching the node MM and
+the frontend. Calls pass through unchanged.
 """
 
 import dataclasses
@@ -75,16 +77,11 @@ class Pricer:
         if result is None:
             return None
         if option.is_put and option.strike > 0:
-            scale = 1.0 / option.strike
             result = dataclasses.replace(
                 result,
-                bid=result.bid * scale,
-                ask=result.ask * scale,
-                mid=result.mid * scale,
-                delta=result.delta * scale,
-                gamma=result.gamma * scale,
-                theta=result.theta * scale,
-                vega=result.vega * scale,
+                bid=result.bid / option.strike,
+                ask=result.ask / option.strike,
+                mid=result.mid / option.strike,
             )
         return result
 

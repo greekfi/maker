@@ -21,9 +21,10 @@ not ported.
   arbitrage conditions are asserted at startup.
 - **Put per-token normalization** (`Pricer.price`): a put option token is
   denominated in consideration collateral — exercising `strike` tokens
-  covers one unit of underlying — so quoted prices and greeks are the
-  source's notional values divided by strike. The node version skips this
-  and quotes puts at full notional price per token.
+  covers one unit of underlying — so the quoted bid/ask/mid is the source's
+  notional price divided by strike (equivalently, multiplied by the
+  contract-stored inverted strike). Greeks stay standard. The node version
+  skips this and quotes puts at full notional price per token.
 - **Discovery is unified**: bebop mode uses the same OptionCreated event
   sync + registry as direct mode (the node version's separate metadata.ts
   RPC scan is gone).
