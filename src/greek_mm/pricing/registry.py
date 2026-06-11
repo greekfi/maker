@@ -1,9 +1,9 @@
-"""Register options from OptionCreated events into a Pricer.
+"""The option book: which options exist, and building them from events.
 
-Pulls the option's terms straight off the event (strike, expiry, is_put,
-collateral/consideration) and reads the token symbol + decimals on-chain
-(cached). Every option is registered — nothing is skipped — so the flat
-price applies to all of them.
+`OptionRegistry` is a plain container of `OptionParams`. The `register_*`
+helpers turn OptionCreated events into options (reading token symbol +
+decimals on-chain, cached) and add them to a registry. Every option is
+registered — nothing is skipped.
 """
 
 import asyncio
@@ -12,9 +12,32 @@ import logging
 from greek_mm.config.clients import get_w3
 from greek_mm.config.tokens import get_token_by_address
 from greek_mm.events import store
-from greek_mm.pricing.pricer import OptionParams, Pricer
+from greek_mm.pricing.pricer import OptionParams
 
 log = logging.getLogger(__name__)
+
+
+class OptionRegistry:
+    """A book of known options, keyed by lowercased address."""
+
+    def __init__(self) -> None:
+        self._options: dict[str, OptionParams] = {}
+
+    def add(self, option: OptionParams) -> None:
+        self._options[option.option_address.lower()] = option
+
+    def get(self, address: str) -> OptionParams | None:
+        return self._options.get(address.lower())
+
+    def all(self) -> list[OptionParams]:
+        return list(self._options.values())
+
+    def addresses(self) -> list[str]:
+        return list(self._options.keys())
+
+    def __contains__(self, address: str) -> bool:
+        return address.lower() in self._options
+
 
 _DECIMALS_ABI = [
     {
@@ -75,12 +98,12 @@ async def _read_decimals(chain_id: int, address: str) -> int:
     return decimals
 
 
-async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str:
-    """Register one event's option if unknown. Returns its option address."""
+async def register_from_event(registry: OptionRegistry, chain_id: int, event: dict) -> None:
+    """Build an option from one event and add it to the registry (if new)."""
     args = event["args"]
     option_address = args["option"]
-    if pricer.is_option(option_address):
-        return option_address
+    if option_address in registry:
+        return
 
     # The underlying label is the collateral for calls, consideration for
     # puts — purely informational (the flat price ignores it).
@@ -94,7 +117,7 @@ async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str
     if args["isPut"] and strike > 0:
         strike = 1 / strike
 
-    pricer.register_option(
+    registry.add(
         OptionParams(
             option_address=option_address,
             underlying=underlying,
@@ -110,23 +133,24 @@ async def register_from_event(pricer: Pricer, chain_id: int, event: dict) -> str
             receipt_address=args["receipt"],
         )
     )
-    return option_address
 
 
-async def register_from_events(pricer: Pricer, chain_id: int, events: list[dict]) -> None:
+async def register_from_events(
+    registry: OptionRegistry, chain_id: int, events: list[dict]
+) -> None:
     """Register a batch; on-chain reads run 16 at a time to stay RPC-polite."""
     batch = 16
     for i in range(0, len(events), batch):
         await asyncio.gather(
-            *(register_from_event(pricer, chain_id, e) for e in events[i : i + batch])
+            *(register_from_event(registry, chain_id, e) for e in events[i : i + batch])
         )
 
 
-async def ensure_registered(pricer: Pricer, chain_id: int, option_address: str) -> bool:
-    if pricer.is_option(option_address):
+async def ensure_registered(registry: OptionRegistry, chain_id: int, option_address: str) -> bool:
+    if option_address in registry:
         return True
     event = store.find_by_option(chain_id, option_address)
     if event is None:
         return False
-    await register_from_event(pricer, chain_id, event)
+    await register_from_event(registry, chain_id, event)
     return True

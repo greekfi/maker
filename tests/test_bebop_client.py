@@ -1,12 +1,11 @@
-import pytest
 from eth_account import Account
 from eth_account.messages import encode_typed_data
-from helpers import make_option
+from helpers import make_option, stub_price
 
 from greek_mm.bebop.client import BebopClient, BebopConfig
+from greek_mm.bebop.rfq import build_quote
 from greek_mm.bebop.signing import _SINGLE_ORDER_TYPES, BEBOP_BLEND_ADDRESS
-from greek_mm.pricing.flat_source import FlatPriceSource
-from greek_mm.pricing.pricer import Pricer
+from greek_mm.pricing.registry import OptionRegistry
 
 # anvil/hardhat test key #0 — public, never holds funds.
 TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -15,12 +14,10 @@ OPTION = "0x" + "ab" * 20
 USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 
-async def test_rfq_produces_signed_quote(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_rfq_produces_signed_quote() -> None:
     """Full maker path: taker RFQ -> $10 quote -> EIP-712 signed response."""
-    monkeypatch.setenv("MAKER_ADDRESS", TEST_ADDRESS)
-
-    pricer = Pricer(FlatPriceSource(10.0), chain_id=8453)
-    pricer.register_option(make_option(OPTION))
+    registry = OptionRegistry()
+    registry.add(make_option(OPTION))
     client = BebopClient(
         BebopConfig(
             chain="base",
@@ -30,10 +27,9 @@ async def test_rfq_produces_signed_quote(monkeypatch: pytest.MonkeyPatch) -> Non
             maker_address=TEST_ADDRESS,
             private_key=TEST_KEY,
         ),
-        pricer.handle_rfq,
+        lambda _rfq: None,
     )
 
-    # Taker wants to buy 1 option, paying USDC.
     rfq = {
         "rfq_id": "rfq-sign",
         "buy_tokens": [{"token": OPTION, "amount": str(10**18)}],
@@ -49,16 +45,16 @@ async def test_rfq_produces_signed_quote(monkeypatch: pytest.MonkeyPatch) -> Non
         },
     }
 
-    quote = await pricer.handle_rfq(rfq)
+    quote = await build_quote(rfq, registry, stub_price(bid=10.0, ask=10.0), TEST_ADDRESS)
     assert quote["type"] == "quote"
     # 1 option at $10 -> 10 USDC (6 decimals)
     assert quote["buy_tokens"][0]["amount"] == "10000000"
 
-    bebop_msg = client._build_quote_message(quote)
-    signed = bebop_msg["msg"]
+    signed = client._build_quote_message(quote)["msg"]
     assert signed["signature"].startswith("0x")
 
-    # The signature recovers to the maker — a real, valid EIP-712 quote.
+    # The signature recovers to the maker — a real, valid EIP-712 quote. The
+    # maker signs taker_token=option / maker_token=USDC (mirrors the node maker).
     typed_data = {
         "types": _SINGLE_ORDER_TYPES,
         "primaryType": "SingleOrder",
@@ -74,8 +70,6 @@ async def test_rfq_produces_signed_quote(monkeypatch: pytest.MonkeyPatch) -> Non
             "taker_address": TEST_ADDRESS,
             "maker_address": TEST_ADDRESS,
             "maker_nonce": 777,
-            # The maker signs taker_token=option / maker_token=USDC (mirrors
-            # the node maker's quote construction).
             "taker_token": OPTION,
             "maker_token": USDC,
             "taker_amount": 10**18,

@@ -8,6 +8,7 @@ import websockets
 
 from greek_mm.bebop.proto import pricing_pb2
 from greek_mm.pricing.pricer import Pricer
+from greek_mm.pricing.registry import OptionRegistry
 
 log = logging.getLogger(__name__)
 
@@ -32,9 +33,12 @@ def _hex_to_bytes(hex_str: str) -> bytes:
 
 
 class MakerPricingStream:
-    def __init__(self, config: PricingStreamConfig, pricer: Pricer) -> None:
+    def __init__(
+        self, config: PricingStreamConfig, registry: OptionRegistry, price: Pricer
+    ) -> None:
         self._config = config
-        self._pricer = pricer
+        self._registry = registry
+        self._price = price
 
     @property
     def ws_url(self) -> str:
@@ -83,13 +87,8 @@ class MakerPricingStream:
 
         valid = 0
         skipped = 0
-        for addr in self._pricer.option_addresses():
-            pricing = await self._pricer.get_price(addr)
-            if not pricing or not pricing["bids"] or not pricing["asks"]:
-                skipped += 1
-                continue
-            bid_price = pricing["bids"][0][0]
-            ask_price = pricing["asks"][0][0]
+        for option in self._registry.all():
+            bid_price, ask_price = self._price(option)
 
             # Bebop rejects zero/negative prices and wide spreads.
             if bid_price <= 0 or ask_price <= 0:
@@ -100,7 +99,7 @@ class MakerPricingStream:
             if spread_bps > _MAX_SPREAD_BPS:
                 log.info(
                     "   %s... SKIPPED (spread %.0f bps, bid=$%.2f ask=$%.2f)",
-                    addr[:10],
+                    option.option_address[:10],
                     spread_bps,
                     bid_price,
                     ask_price,
@@ -109,7 +108,7 @@ class MakerPricingStream:
                 continue
 
             level = schema.msg.levels.add()
-            level.base_address = _hex_to_bytes(addr)
+            level.base_address = _hex_to_bytes(option.option_address)
             level.base_decimals = 18  # Option ERC20s are 18-decimal
             level.quote_address = _hex_to_bytes(self._config.usdc_address)
             level.quote_decimals = 6

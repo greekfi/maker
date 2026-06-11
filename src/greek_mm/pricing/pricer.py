@@ -1,146 +1,37 @@
-"""Per-chain option registry + quote scaling + Bebop RFQ handling.
+"""The pricer: a function from an option to its (bid, ask), USD per token.
 
-Pricing is delegated to the injected PriceSource (the seam) — the Pricer
-only owns what is stateful: which options exist on this chain, and how to
-turn a per-token price into on-chain token amounts for quotes.
+That's the whole job. To add real pricing, write a function with the same
+shape (option in, `(bid, ask)` out) and pass it where `flat_price` is used.
 """
 
-import logging
 import os
-import time
-
-from greek_mm.pricing.source import OptionParams, PriceResult, PriceSource
-
-log = logging.getLogger(__name__)
-
-__all__ = ["OptionParams", "Pricer"]
+from collections.abc import Callable
+from dataclasses import dataclass
 
 
-class Pricer:
-    def __init__(self, source: PriceSource, chain_id: int) -> None:
-        self.source = source
-        self.chain_id = chain_id
-        self._options: dict[str, OptionParams] = {}
+@dataclass(frozen=True)
+class OptionParams:
+    """Everything known about an option, straight from its OptionCreated event."""
 
-    # === registry ===
+    option_address: str
+    underlying: str  # symbol of the collateral (call) / consideration (put) token
+    strike: float  # human-readable, consideration-per-collateral
+    expiry: int  # unix seconds
+    is_put: bool
+    is_euro: bool
+    decimals: int  # option token decimals
+    chain_id: int
+    collateral_address: str
+    consideration_address: str
+    window_seconds: int
+    receipt_address: str
 
-    def register_option(self, option: OptionParams) -> None:
-        self._options[option.option_address.lower()] = option
 
-    def get_option(self, address: str) -> OptionParams | None:
-        return self._options.get(address.lower())
+# A pricer is a function: option -> (bid, ask) in USD per option token.
+Pricer = Callable[[OptionParams], tuple[float, float]]
 
-    def all_options(self) -> list[OptionParams]:
-        return list(self._options.values())
 
-    def option_addresses(self) -> list[str]:
-        return list(self._options.keys())
-
-    def is_option(self, address: str) -> bool:
-        return address.lower() in self._options
-
-    # === pricing ===
-
-    async def price(self, option_address: str) -> PriceResult | None:
-        """Two-sided market (bid/ask) per 1 option token. The full option
-        info is handed to the PriceSource."""
-        option = self.get_option(option_address)
-        if option is None:
-            return None
-        return await self.source.price(option)
-
-    async def get_price(self, option_address: str) -> dict | None:
-        """[price, size] levels format for the Bebop pricing stream."""
-        result = await self.price(option_address)
-        if result is None:
-            return None
-        return {"bids": [[result.bid, 1000]], "asks": [[result.ask, 1000]]}
-
-    # === quote scaling (exact integer math) ===
-
-    async def ask_premium(self, option_address: str, amount: int, decimals: int) -> int | None:
-        """Premium (ask side) to buy `amount` option units, in premium-token units."""
-        result = await self.price(option_address)
-        option = self.get_option(option_address)
-        if result is None or option is None:
-            return None
-        ask_scaled = int(result.ask * 10**decimals)
-        return amount * ask_scaled // 10**option.decimals
-
-    async def bid_premium(self, option_address: str, amount: int, decimals: int) -> int | None:
-        """Premium (bid side) to sell `amount` option units, in premium-token units."""
-        result = await self.price(option_address)
-        option = self.get_option(option_address)
-        if result is None or option is None:
-            return None
-        bid_scaled = int(result.bid * 10**decimals)
-        return amount * bid_scaled // 10**option.decimals
-
-    # === Bebop RFQ ===
-
-    async def handle_rfq(self, rfq: dict) -> dict:
-        """Port of node Pricer.handleRfq: quote or decline an incoming RFQ."""
-        rfq_id = rfq["rfq_id"]
-        buy_tokens = rfq.get("buy_tokens") or []
-        sell_tokens = rfq.get("sell_tokens") or []
-        original = rfq.get("_originalRequest") or {}
-
-        buy = buy_tokens[0] if buy_tokens else None
-        sell = sell_tokens[0] if sell_tokens else None
-        if not buy or not sell:
-            return {"type": "decline", "rfq_id": rfq_id, "reason": "Invalid tokens"}
-
-        is_buying_option = self.is_option(buy["token"])
-        is_selling_option = self.is_option(sell["token"])
-        if not is_buying_option and not is_selling_option:
-            return {"type": "decline", "rfq_id": rfq_id, "reason": "No option token in request"}
-        if is_buying_option and is_selling_option:
-            return {"type": "decline", "rfq_id": rfq_id, "reason": "Cannot trade option for option"}
-
-        try:
-            maker_address = os.environ.get("MAKER_ADDRESS")
-            if not maker_address:
-                msg = "MAKER_ADDRESS not set"
-                raise ValueError(msg)
-
-            if is_buying_option:
-                # Taker buys the option: maker quotes the ask premium, taker pays it.
-                option_address = buy["token"]
-                option_amount = int(buy["amount"])
-                premium = await self.ask_premium(option_address, option_amount, 6)
-                if premium is None:
-                    msg = "Failed to calculate quote"
-                    raise ValueError(msg)
-                quote = {
-                    "type": "quote",
-                    "rfq_id": rfq_id,
-                    "maker_address": maker_address,
-                    "buy_tokens": [{"token": sell["token"], "amount": str(premium)}],
-                    "sell_tokens": [{"token": buy["token"], "amount": str(option_amount)}],
-                    "expiry": int(time.time()) + 60,
-                    "_originalRequest": original,
-                }
-            else:
-                # Taker sells the option: maker quotes the bid premium, taker receives it.
-                option_address = sell["token"]
-                option_amount = int(sell["amount"])
-                premium = await self.bid_premium(option_address, option_amount, 6)
-                if premium is None:
-                    msg = "Failed to calculate quote"
-                    raise ValueError(msg)
-                quote = {
-                    "type": "quote",
-                    "rfq_id": rfq_id,
-                    "maker_address": maker_address,
-                    "buy_tokens": [{"token": sell["token"], "amount": str(option_amount)}],
-                    "sell_tokens": [{"token": buy["token"], "amount": str(premium)}],
-                    "expiry": int(time.time()) + 60,
-                    "_originalRequest": original,
-                }
-
-            log.info("RFQ %s quoted", rfq_id[:8])
-        except Exception as err:
-            log.error("RFQ %s error: %s", rfq_id[:8], err)
-            return {"type": "decline", "rfq_id": rfq_id, "reason": f"Error: {err}"}
-        else:
-            return quote
+def flat_price(option: OptionParams) -> tuple[float, float]:  # noqa: ARG001 — info passed, unused
+    """Flat price per token (PRICE_PER_TOKEN, default $10). Ignores the option."""
+    price = float(os.environ.get("PRICE_PER_TOKEN", "10"))
+    return price, price

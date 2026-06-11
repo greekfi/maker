@@ -9,12 +9,12 @@ import os
 
 from greek_mm.bebop.client import BebopClient, BebopConfig
 from greek_mm.bebop.pricing_stream import MakerPricingStream, PricingStreamConfig
+from greek_mm.bebop.rfq import build_quote
 from greek_mm.config.tokens import get_token
 from greek_mm.events.sync_loop import run_sync_loop
 from greek_mm.modes._runtime import bootstrap, run
-from greek_mm.pricing.flat_source import FlatPriceSource
-from greek_mm.pricing.pricer import Pricer
-from greek_mm.pricing.registry import register_from_events
+from greek_mm.pricing.pricer import flat_price
+from greek_mm.pricing.registry import OptionRegistry, register_from_events
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ async def _main() -> None:
         log.warning("USDC not configured for chain %d, using Ethereum USDC", chain_id)
         usdc_address = get_token(1, "USDC").address
 
-    source = FlatPriceSource(float(os.environ.get("PRICE_PER_TOKEN", "10")))
-    pricer = Pricer(source, chain_id)
+    registry = OptionRegistry()
+    price = flat_price  # the pricer: option -> (bid, ask)
 
     # Optional filter: only quote the addresses in OPTION_ONLY (comma-separated).
     only_env = os.environ.get("OPTION_ONLY", "").strip()
@@ -44,7 +44,10 @@ async def _main() -> None:
     async def on_new_events(event_chain_id: int, events: list[dict]) -> None:
         if only_filter is not None:
             events = [e for e in events if e["args"]["option"].lower() in only_filter]
-        await register_from_events(pricer, event_chain_id, events)
+        await register_from_events(registry, event_chain_id, events)
+
+    async def handle_rfq(rfq: dict) -> dict:
+        return await build_quote(rfq, registry, price, maker_address)
 
     bebop_client = BebopClient(
         BebopConfig(
@@ -55,7 +58,7 @@ async def _main() -> None:
             maker_address=maker_address,
             private_key=os.environ.get("PRIVATE_KEY"),
         ),
-        pricer.handle_rfq,
+        handle_rfq,
     )
     pricing_stream = MakerPricingStream(
         PricingStreamConfig(
@@ -66,7 +69,8 @@ async def _main() -> None:
             maker_address=maker_address,
             usdc_address=usdc_address,
         ),
-        pricer,
+        registry,
+        price,
     )
 
     await asyncio.gather(

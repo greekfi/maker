@@ -1,22 +1,11 @@
-"""Shared test stubs."""
+"""Shared test helpers."""
 
-from greek_mm.pricing.source import OptionParams, PriceResult
-
-
-class StubSource:
-    """PriceSource returning a fixed result (or None)."""
-
-    def __init__(self, result: PriceResult | None) -> None:
-        self.result = result
-        self.calls: list[OptionParams] = []
-
-    async def price(self, option: OptionParams) -> PriceResult | None:
-        self.calls.append(option)
-        return self.result
+from greek_mm.pricing.pricer import OptionParams
 
 
-def make_result(bid: float = 95.0, ask: float = 105.0, mid: float = 100.0) -> PriceResult:
-    return PriceResult(bid=bid, ask=ask, mid=mid)
+def stub_price(bid: float = 95.0, ask: float = 105.0):
+    """A pricer that ignores the option and returns a fixed (bid, ask)."""
+    return lambda option: (bid, ask)  # noqa: ARG005
 
 
 def make_option(
