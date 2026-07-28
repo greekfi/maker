@@ -1,0 +1,44 @@
+# Internal reverse proxy for the market-maker on Fly.io.
+#
+# Fly's edge handles TLS termination — Caddy here listens on plain HTTP
+# (port 8080) and routes to the local PM2 services by path. The Fly proxy
+# transparently proxies WebSocket upgrades.
+
+{
+    # Disable Caddy's automatic HTTPS — Fly does that.
+    auto_https off
+    admin off
+    # Trust Fly's edge so X-Forwarded-* headers are honored.
+    servers {
+        trusted_proxies static private_ranges 100.64.0.0/10
+    }
+}
+
+# Bind to all interfaces on 8080 — Fly maps 443 → 8080 inside the VM.
+:8080 {
+    encode gzip
+
+    # Pricing relay WebSocket (Bebop taker prices fanned out to clients).
+    # Frontend hits wss://<host>/pricing.
+    @relay path /pricing /pricing/*
+    handle @relay {
+        reverse_proxy localhost:3004
+    }
+
+    # RFQ pricing stream WebSocket (option-level bid/ask).
+    # Frontend hits wss://<host>/rfq.
+    @rfq path /rfq /rfq/*
+    handle @rfq {
+        reverse_proxy localhost:3011
+    }
+
+    # Everything else → direct HTTP API: /quote, /options, /price/:addr, /health.
+    handle {
+        reverse_proxy localhost:3010
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

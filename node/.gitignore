@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.rpc.env
+node_modules/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+dist/
+scripts/*.js
+scripts/*.d.ts
+scripts/*.js.map
+scripts/*.d.ts.map

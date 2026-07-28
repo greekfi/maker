@@ -1,0 +1,32 @@
+{
+  "1": {
+    "name": "mainnet",
+    "factory": "0x0000000000008aF0c21B3099857341B3E2D41E39",
+    "deploymentBlock": 25419530
+  },
+  "10": {
+    "name": "optimism",
+    "factory": "0x0000000000008aF0c21B3099857341B3E2D41E39",
+    "deploymentBlock": 153545069
+  },
+  "8453": {
+    "name": "base",
+    "factory": "0x0000000000008aF0c21B3099857341B3E2D41E39",
+    "deploymentBlock": 47949799
+  },
+  "42161": {
+    "name": "arbitrum",
+    "factory": "0x0000000000008aF0c21B3099857341B3E2D41E39",
+    "deploymentBlock": 478384715
+  },
+  "57073": {
+    "name": "ink",
+    "factory": "0x799f44d9881a08c226c0c408e60a39d9a1d31d75",
+    "deploymentBlock": 44067364
+  },
+  "31337": {
+    "name": "foundry",
+    "factory": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
+    "deploymentBlock": 1
+  }
+}

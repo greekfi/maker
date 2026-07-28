@@ -1,0 +1,67 @@
+# Fly.io app config for the Greek market-maker.
+#
+#   fly deploy
+#
+# Or use the GH workflow (.github/workflows/deploy.yml) — push to main.
+
+app = "greek-protocol"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Public env — values that aren't secret can live here. Override locally with
+# `fly deploy --build-arg`. Sensitive values come from `fly secrets`.
+[env]
+  NODE_ENV = "production"
+  # Multi-chain. Default = every chain in factories.json. Set CHAIN_IDS to
+  # a comma-separated list to restrict (canary / staging deploys only).
+  # Frontend must include `?chainId=<id>` in /quote, /options, /price requests.
+  HTTP_PORT = "3010"
+  WS_PORT = "3011"
+  RELAY_WS_PORT = "3004"
+  DEFAULT_IV = "0.8"
+  RISK_FREE_RATE = "0.05"
+  BID_SPREAD = "0.02"
+  ASK_SPREAD = "0.02"
+  SPOT_POLL_INTERVAL = "30000"
+  PRICE_BROADCAST_INTERVAL = "5000"
+  BEBOP_API_URL = "https://api.bebop.xyz"
+  BEBOP_CHAINS = "ethereum,base,arbitrum"
+  # Public RPCs that don't 403 cloud IPs. Override with secrets if you have
+  # Alchemy/Infura/QuickNode keys (e.g. fly secrets set RPC_BASE=https://...).
+  RPC_ETHEREUM = "https://ethereum-rpc.publicnode.com"
+  RPC_BASE = "https://base-rpc.publicnode.com"
+  RPC_ARBITRUM = "https://arbitrum-one-rpc.publicnode.com"
+  RPC_UNICHAIN = "https://unichain-rpc.publicnode.com"
+
+# Single public HTTP service. Caddy inside the container path-routes
+# `/pricing` (relay WS), `/rfq` (RFQ WS), and `*` (direct HTTP).
+# Fly's edge terminates TLS and proxies WebSocket upgrades transparently.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # always-on — relay/direct must stay live
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+# (Optional) Pin to a single machine so PM2 state is predictable.
+# Scaling beyond 1 machine would require splitting the bebop/deribit
+# WebSocket maker connection across instances, which Bebop disallows
+# (one connection per maker). Keep 1.
+[deploy]
+  strategy = "rolling"

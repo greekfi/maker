@@ -6,7 +6,13 @@ A Bebop options market maker in one Python file, as an example.
 mm.py           the market maker — everything is here
 pricing.proto   wire schema for the PMM pricing stream
 .env.example    configuration
+node/           the original TypeScript maker, for reference
 ```
+
+`node/` is the Node maker this was ported from, copied as-is from
+`greekfi/protocol`. It does more than `mm.py` (quote server, price relay,
+Deribit IV feed, deploy tooling) but talks only the PMM service and signs with
+a bare-string signature — see `node/README.md`.
 
 ## Two Bebop services, two protocols
 
