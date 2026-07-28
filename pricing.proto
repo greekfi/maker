@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package bebop;
+
+// Wire schema for the Bebop maker pricing stream:
+//   wss://api.bebop.xyz/pmm/<chain>/v3/maker/pricing?format=protobuf
+//
+// mm.py encodes LevelsSchema by hand (see the `# --- protobuf ---` section)
+// so the example stays a single dependency-light file. This file is the
+// schema of record — field numbers and types here must match the encoder.
+// To use generated code instead:
+//   uv run --with grpcio-tools python -m grpc_tools.protoc -I. --python_out=. pricing.proto
+
+message LevelInfo {
+  bytes base_address = 1;
+  uint32 base_decimals = 2;
+  bytes quote_address = 3;
+  uint32 quote_decimals = 4;
+  repeated double bids = 5 [packed=true];  // [price, amount, price, amount, ...]
+  repeated double asks = 6 [packed=true];  // [price, amount, price, amount, ...]
+}
+
+message LevelMsg {
+  repeated LevelInfo levels = 1;
+  bytes maker_address = 2;
+}
+
+message LevelsSchema {
+  uint32 chain_id = 1;
+  string msg_topic = 2;  // "pricing"
+  string msg_type = 3;   // "update"
+  LevelMsg msg = 4;
+}
+
+// What Bebop sends back after each LevelsSchema push. Reconstructed from the
+// wire — the pricing stream acks in protobuf, not JSON.
+message AckMsg {
+  uint32 code = 1;    // 10 on success
+  string message = 2; // "Message processed successfully"
+}
+
+message AckSchema {
+  uint32 chain_id = 1;
+  string msg_topic = 2;  // "websocket"
+  string msg_type = 3;   // "success" | "error"
+  AckMsg msg = 4;
+}
